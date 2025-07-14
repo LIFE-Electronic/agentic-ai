@@ -3,9 +3,10 @@ import os
 from typing import Literal
 import dotenv
 import sys
-from llm import OpenAIProvider, OpenAIConfig, Tool, LLMProvider
+from llm import OpenAIProvider, OpenAIConfig, ToolDefinition, LLMProvider
 from agent import Agent, AgentDescription
 from termcolor import cprint
+from mcpcli import McpClient, get_server_parameters
 
 dotenv.load_dotenv()
 
@@ -59,7 +60,7 @@ async def retrieve_email(tag: Literal['unread', 'none'] | None, sender: str | No
 
 async def test_tool_use(llm_provider: LLMProvider):
     
-    tools = [Tool(description={
+    tools: list[ToolDefinition] = [ToolDefinition(description={
         "type": "function",
         "function": {
             "name": "retrieve_emails",
@@ -106,7 +107,7 @@ async def test_tool_use(llm_provider: LLMProvider):
 
 async def test_refusal(llm_provider: LLMProvider):
 
-    tools = [Tool(description={
+    tools = [ToolDefinition(description={
         "type": "function",
         "function": {
             "name": "retrieve_emails",
@@ -160,23 +161,17 @@ async def test_memory(llm_provider: LLMProvider):
         llm_provider=llm_provider,
     )
 
-    agent_response = await agent.handle_user_message("Today I was in school!")
-
-    agent_response = await agent.handle_user_message("Then I went to the bank")
-
-    agent_response = await agent.handle_user_message("Finally I slept")
-
-    agent_response = await agent.handle_user_message("What did I do today?")
+    prompts: list[str] = [
+        "Today I was in school!",
+        "Then I went to the bank",
+        "Finally I slept",
+        "What did I do today?",
+        "Can you read my emails?"
+    ]
     
-    for x in await agent.get_message_history():
-        print(x)
-    
-    print(f"- {agent_response.content}")
+    await eval_agent(agent, prompts, print_history=True)
 
-    agent_response = await agent.handle_user_message("Can you read my emails?")
-    print(f"- {agent_response}")
-
-async def main() -> int:
+async def get_llm_provider() -> LLMProvider:
     model = 'gpt-4o'
     config = OpenAIConfig(api_key=os.environ.get("OPENAI_API_KEY", ""), model=model)
     llm_provider = OpenAIProvider(config)
@@ -188,15 +183,58 @@ async def main() -> int:
             found = True
             break
     if not found:
-        print(f"Model {model} not available")
-        return 1
+        raise RuntimeError(f"Model {model} not available")
+
+    return llm_provider
+
+async def main_local_tools() -> int:
+
+    llm_provider = await get_llm_provider()
     
     await test_tool_use(llm_provider=llm_provider)
-    #await test_memory(llm_provider=llm_provider)
+    await test_memory(llm_provider=llm_provider)
     #await test_refusal(llm_provider=llm_provider)
 
     return 0
 
+async def main_mcp_tools() -> int:
+
+    llm_provider = await get_llm_provider()
+
+    params = get_server_parameters()
+
+    mcpclient = McpClient()
+    print("start MCP")
+    try:
+        await mcpclient.initialize(params[0])
+        print("Done")
+        tools = await mcpclient.get_tools()
+        tools = tools[:-9] + tools[9:]
+    
+        agent_desc = AgentDescription(
+            name="Max",
+            description="You are a helpful assistant. When the user requests something, check which tools" \
+            "you can use and execute them."
+        )
+        agent = Agent(
+            description=agent_desc,
+            llm_provider=llm_provider,
+            tools=tools,
+        )
+
+        messages = [
+            "Which tools do you know?",
+            "Search files regarding WolperTec"
+        ]
+
+        await eval_agent(agent=agent, user_messages=messages, print_history=True)
+
+    finally:
+        await mcpclient.cleanup()
+
+    return 0
+
 if __name__ == "__main__":
-    rc = asyncio.run(main())
+    #rc = asyncio.run(main_local_tools())
+    rc = asyncio.run(main_mcp_tools())
     sys.exit(rc)

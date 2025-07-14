@@ -23,7 +23,7 @@ class LLMMessage:
 type ToolDescription = dict[str, Any]
 
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
-class Tool:
+class ToolDefinition:
     description: ToolDescription
     function: Callable[..., Awaitable[str]]
 
@@ -48,8 +48,8 @@ class LLMProvider(ABC):
     @abstractmethod
     async def query(
         self,
-        messages: Iterable[LLMMessage],
-        tools: Iterable[Tool],
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition],
         force_tool_use: bool,
         response_format: Any | None,
     ) -> ChatResponse:
@@ -78,8 +78,8 @@ class OpenAIProvider(LLMProvider):
 
     async def _invoke_tools(
         self,
-        tools: Iterable[Tool],
-        tool_calls: Iterable[ToolCall],
+        tools: list[ToolDefinition],
+        tool_calls: list[ToolCall],
     ) -> list[dict[str, str]]:
         
         tool_responses = []
@@ -118,8 +118,8 @@ class OpenAIProvider(LLMProvider):
 
     async def query(
         self,
-        messages: Iterable[LLMMessage],
-        tools: Iterable[Tool] = [],
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition] = [],
         force_tool_use: bool = False,
         response_format: Any | None = None,
     ) -> ChatResponse:
@@ -127,14 +127,24 @@ class OpenAIProvider(LLMProvider):
             api_key=self.config.api_key,
             http_client=DefaultAioHttpClient(),
         ) as client:
-            chat_completion = await client.chat.completions.parse(
+            from openai.lib._parsing._completions import type_to_response_format_param
+            #chat_completion = await client.chat.completions.parse(
+            #    messages=[{
+            #        'role': m.role,
+            #        'content': m.content,
+            #    } for m in messages],
+            #    model=self.config.model,
+            #    tools=[tool.description for tool in tools],
+            #    response_format=response_format if response_format else None
+            #)
+            chat_completion = await client.chat.completions.create(
                 messages=[{
                     'role': m.role,
                     'content': m.content,
                 } for m in messages],
                 model=self.config.model,
                 tools=[tool.description for tool in tools],
-                response_format=response_format if response_format else None
+                response_format=type_to_response_format_param(response_format) if response_format else None
             )
             
             if chat_completion.usage:

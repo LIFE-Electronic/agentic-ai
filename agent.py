@@ -1,4 +1,4 @@
-from llm import LLMMessage, LLMProvider, Tool, ChatResponse
+from llm import LLMMessage, LLMProvider, ToolDefinition, ChatResponse
 from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 from typing import Iterable, Literal
@@ -24,7 +24,7 @@ class Agent():
 
     _llm_provider: LLMProvider
     _stm_provider: MemoryProvider
-    _tools: list[Tool]
+    _tools: list[ToolDefinition]
     _description: AgentDescription
     _force_tool_use: bool
     _tokens_used: int
@@ -33,8 +33,8 @@ class Agent():
             self,
             description: AgentDescription,
             llm_provider: LLMProvider,
-            stm_provider: MemoryProvider = RAMMemory(),
-            tools: list[Tool] = [],
+            stm_provider: MemoryProvider | None = None,
+            tools: list[ToolDefinition] = [],
             force_tool_use: bool = False,
     ):
         self._llm_provider = llm_provider
@@ -43,6 +43,7 @@ class Agent():
         self._tools = tools
         self._force_tool_use = force_tool_use
         self._tokens_used = 0
+        self._stm_provider = RAMMemory()
 
     def get_agent_description(self) -> AgentDescription:
         return self._description
@@ -78,7 +79,8 @@ class Agent():
             - If you are assigned a task that does not fit
             your description, respond with an error as described in
             the output format.
-            - If you refuse a task, always provide a concise explanation why
+            - If you refuse a task, always provide a concise explanation why.
+            Don't add anything else, just the reason of why you refused it.
             </instruction>
             <agent_description>
                 <name>{self._description.name}</name>
