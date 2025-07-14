@@ -38,12 +38,11 @@ class Agent():
             force_tool_use: bool = False,
     ):
         self._llm_provider = llm_provider
-        self._stm_provider = stm_provider
         self._description = description
         self._tools = tools
         self._force_tool_use = force_tool_use
         self._tokens_used = 0
-        self._stm_provider = RAMMemory()
+        self._stm_provider = stm_provider or RAMMemory()
 
     def get_agent_description(self) -> AgentDescription:
         return self._description

@@ -1,5 +1,6 @@
 from openai import DefaultAioHttpClient, AsyncOpenAI
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionDeveloperMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
+from openai.lib._parsing._completions import type_to_response_format_param
 from pydantic.dataclasses import dataclass
 from pydantic import ConfigDict
 from typing import Literal, Iterable, Callable, Any, Tuple, Awaitable
@@ -108,13 +109,24 @@ class OpenAIProvider(LLMProvider):
         reason_prompt_message = LLMMessage(role='developer', content=prompt)
         new_messages = messages[:] + [reason_prompt_message]
         chat_completion = await client.chat.completions.create(
-            messages=[{
-                'role': m.role,
-                'content': m.content,
-            } for m in new_messages],
+            messages=self._create_openai_messages(messages=new_messages),
             model=self.config.model
         )
         return chat_completion, new_messages, reason_prompt_message
+
+    def _create_openai_messages(self, messages: list[LLMMessage]) -> list[ChatCompletionDeveloperMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam]:
+
+        def transform(message: LLMMessage) -> ChatCompletionDeveloperMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam:
+            if message.role == "assistant":
+                return ChatCompletionAssistantMessageParam(role='assistant', content=message.content)
+            elif message.role == "developer":
+                return ChatCompletionDeveloperMessageParam(role='developer', content=message.content)
+            elif message.role == "user":
+                return ChatCompletionUserMessageParam(role='user', content=message.content)
+            else:
+                raise ValueError(f"Role: {message.role} not yet supported")
+
+        return [transform(m) for m in messages]
 
     async def query(
         self,
@@ -127,21 +139,8 @@ class OpenAIProvider(LLMProvider):
             api_key=self.config.api_key,
             http_client=DefaultAioHttpClient(),
         ) as client:
-            from openai.lib._parsing._completions import type_to_response_format_param
-            #chat_completion = await client.chat.completions.parse(
-            #    messages=[{
-            #        'role': m.role,
-            #        'content': m.content,
-            #    } for m in messages],
-            #    model=self.config.model,
-            #    tools=[tool.description for tool in tools],
-            #    response_format=response_format if response_format else None
-            #)
             chat_completion = await client.chat.completions.create(
-                messages=[{
-                    'role': m.role,
-                    'content': m.content,
-                } for m in messages],
+                messages=self._create_openai_messages(messages=messages),
                 model=self.config.model,
                 tools=[tool.description for tool in tools],
                 response_format=type_to_response_format_param(response_format) if response_format else None
@@ -159,7 +158,7 @@ class OpenAIProvider(LLMProvider):
 
             # we are done
             if choice.finish_reason != 'tool_calls':
-                return ChatResponse(content=message.content, tokens_used=tokens)
+                return ChatResponse(content=message.content or "", tokens_used=tokens)
 
             # store all intermediate messages so that we can return them and 
             # eventuelly use them downstream if needed.
@@ -205,10 +204,7 @@ class OpenAIProvider(LLMProvider):
             new_messages = history[:] + [final_answer_prompt_message]
 
             tool_completion = await client.chat.completions.parse(
-                messages=[{
-                    'role': m.role,
-                    'content': m.content,
-                } for m in new_messages],
+                messages=self._create_openai_messages(messages=new_messages),
                 model=self.config.model,
                 response_format=response_format if response_format else None
             )

@@ -78,8 +78,10 @@ class McpClient():
         }
 
         async def invoke_tool(**kwargs) -> str:
-            
-            print("invoke the tool", self, name)
+            if not self._session:
+                return f"<tool_call_error>There was an error calling tool {name}: NO CONNECTION TO MCP SERVER</tool_call_error>"
+
+            print(f"invoke MCP server tool: {name}")
 
             response: CallToolResult = await self._session.call_tool(name, **kwargs)
             if response.isError:
