@@ -38,6 +38,7 @@ class ChatResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_log: list[LLMMessage] = field(default_factory=list)
     error: Literal['no_tool_found'] | None = None
+    tokens_used: int = 0
 
 @dataclass
 class ModelResponse:
@@ -79,7 +80,7 @@ class OpenAIProvider(LLMProvider):
         self,
         tools: Iterable[Tool],
         tool_calls: Iterable[ToolCall],
-    ) -> list[str]:
+    ) -> list[dict[str, str]]:
         
         tool_responses = []
         for tool_call in tool_calls:
@@ -96,8 +97,8 @@ class OpenAIProvider(LLMProvider):
     async def _get_tool_call_reason(
         self,
         client: AsyncOpenAI,
-        messages: Iterable[LLMMessage],
-        tool_calls = Iterable[ToolCall],
+        messages: list[LLMMessage],
+        tool_calls = list[ToolCall],
     ) -> Tuple[ChatCompletion, list[LLMMessage], LLMMessage]:
         prompt = f"""To execute this task, you will execute the following tool call: 
         {json.dumps([asdict(t) for t in tool_calls])}.
@@ -135,17 +136,20 @@ class OpenAIProvider(LLMProvider):
                 tools=[tool.description for tool in tools],
                 response_format=response_format if response_format else None
             )
+            
+            if chat_completion.usage:
+                tokens = chat_completion.usage.total_tokens
             choice = chat_completion.choices[0]
             message = choice.message
 
             if choice.finish_reason == 'stop':
                 # no tool calls requested by LLM but tool use forced.
                 if not message.tool_calls and force_tool_use:
-                    return ChatResponse(error='no_tool_found')
+                    return ChatResponse(error='no_tool_found', tokens_used=tokens)
 
             # we are done
             if choice.finish_reason != 'tool_calls':
-                return ChatResponse(content=message.content)
+                return ChatResponse(content=message.content, tokens_used=tokens)
 
             # store all intermediate messages so that we can return them and 
             # eventuelly use them downstream if needed.
@@ -155,19 +159,22 @@ class OpenAIProvider(LLMProvider):
             tool_calls = [ToolCall(
                 name=tc.function.name,
                 arguments=json.loads(tc.function.arguments),
-            ) for tc in message.tool_calls]
+            ) for tc in message.tool_calls or []]
 
             for tool_call in tool_calls:
                 tool_call_message_log.append(LLMMessage(role="assistant", content=f"I will call {asdict(tool_call)}"))
 
             reason_completion, reason_messages, reason_prompt_message = await self._get_tool_call_reason(client, messages, tool_calls)
 
+            if reason_completion.usage:
+                tokens += reason_completion.usage.total_tokens
+
             tool_call_message_log.append(reason_prompt_message)
-            tool_call_message_log.append(LLMMessage(role="assistant", content=reason_completion.choices[0].message.content))
+            tool_call_message_log.append(LLMMessage(role="assistant", content=reason_completion.choices[0].message.content or ""))
 
             history = reason_messages[:] + [LLMMessage(
                 role='assistant',
-                content=reason_completion.choices[0].message.content,
+                content=reason_completion.choices[0].message.content or "",
             )]
         
             print("!!!!invoke tools")
@@ -196,7 +203,11 @@ class OpenAIProvider(LLMProvider):
                 response_format=response_format if response_format else None
             )
 
+            if tool_completion.usage:
+                tokens += tool_completion.usage.total_tokens
+
             return ChatResponse(
-                content=tool_completion.choices[0].message.content,
+                content=tool_completion.choices[0].message.content or "",
                 tool_call_log=tool_call_message_log,
+                tokens_used=tokens,
             )
