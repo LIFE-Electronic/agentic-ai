@@ -260,12 +260,19 @@ async def test_mrag():
         "In the game Alpha Centauri, the spaceship is travelling to Alpha Omega",
         "De rampenbestrijding en de voorbereiding daarop is een taak van de gemeente en het bestuur van de veiligheidsregio.",
         "Om zich voor te kunnen bereiden op de rampenbestrijding heeft het bestuur van de veiligheidsregio informatie nodig van de exploitanten.",
-        "De informatie die nodig is (opgesomd in Bijlage K) is in principe opgenomen in het VR. Deze bijlage handelt over het selecteren van rampscenario’s die de veiligheidsregio inzicht moeten geven in de dynamiek van effecten ten gevolge van een LOC. "
+        "De informatie die nodig is (opgesomd in Bijlage K) is in principe opgenomen in het VR. Deze bijlage handelt over het selecteren van rampscenario’s die de veiligheidsregio inzicht moeten geven in de dynamiek van effecten ten gevolge van een LOC. ",
+        "Space travel is dangerous. Especially outside of the galactic alliance. Alpha Omega is outside of it. So I need to be careful!",
+        "Tomorrow. Maaike comes and visit. I should prepare some food",
+        "Maaike loves italic. Spaghetti or Pizza or something like that"
     ]
 
-    for ci in cis:
-        note = await amem.create_memory_note(ci)
+    for i, ci in enumerate(cis):
+        note, updated_notes = await amem.create_memory_note(ci)
         amem.store_memory(note=note)
+        for update_note in updated_notes:
+            amem.store_memory(update_note)
+        
+        print(amem.draw_memory_graph(output_file=f"xxx_dottest/out_{i:03d}.gv", max_notes=10000))
 
 
     # Door deze informatie krijgt de veiligheidsregio een beeld van de mogelijke effecten buiten de Seveso-inrichting in geval van een ramp. Op basis van deze effecten bepaalt de veiligheidsregio, al dan niet in samenwerking met een bedrijfsbrandweer van de desbetreffende Seveso-inrichting, hoe moet worden opgetreden om de gevolgen van een ramp te minimaliseren." \

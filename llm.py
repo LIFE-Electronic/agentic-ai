@@ -90,8 +90,10 @@ class OpenAIProvider(LLMProvider, EmbeddingProvider):
             embedding_response = await client.embeddings.create(
                 input=text_content,
                 model=self.config.embedding_model,
+                encoding_format="float",
             )
             embedding = embedding_response.data[0].embedding
+
             tokens = 0
             if embedding_response.usage:
                 tokens += embedding_response.usage.total_tokens
