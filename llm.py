@@ -1,6 +1,7 @@
 from openai import DefaultAioHttpClient, AsyncOpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionDeveloperMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam
+from openai.types.chat import ChatCompletion, ChatCompletionDeveloperMessageParam, ChatCompletionUserMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionToolParam
 from openai.lib._parsing._completions import type_to_response_format_param
+from openai._types import NotGiven
 from pydantic.dataclasses import dataclass
 from pydantic import ConfigDict
 from typing import Literal, Iterable, Callable, Any, Tuple, Awaitable
@@ -128,6 +129,12 @@ class OpenAIProvider(LLMProvider):
 
         return [transform(m) for m in messages]
 
+    def _create_openai_tools(self, tool_description: ToolDescription) -> ChatCompletionToolParam:
+        return ChatCompletionToolParam(
+            type=tool_description["type"],
+            function=tool_description["function"]
+        )
+
     async def query(
         self,
         messages: list[LLMMessage],
@@ -142,8 +149,8 @@ class OpenAIProvider(LLMProvider):
             chat_completion = await client.chat.completions.create(
                 messages=self._create_openai_messages(messages=messages),
                 model=self.config.model,
-                tools=[tool.description for tool in tools],
-                response_format=type_to_response_format_param(response_format) if response_format else None
+                tools=[self._create_openai_tools(tool.description) for tool in tools],
+                response_format=type_to_response_format_param(response_format) if response_format else NotGiven
             )
             
             if chat_completion.usage:
@@ -206,7 +213,7 @@ class OpenAIProvider(LLMProvider):
             tool_completion = await client.chat.completions.parse(
                 messages=self._create_openai_messages(messages=new_messages),
                 model=self.config.model,
-                response_format=response_format if response_format else None
+                response_format=response_format if response_format else NotGiven
             )
 
             if tool_completion.usage:

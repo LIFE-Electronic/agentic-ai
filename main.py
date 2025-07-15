@@ -7,6 +7,7 @@ from llm import OpenAIProvider, OpenAIConfig, ToolDefinition, LLMProvider
 from agent import Agent, AgentDescription
 from termcolor import cprint
 from mcpcli import McpClient, get_server_parameters
+from mrag import MRag
 
 dotenv.load_dotenv()
 
@@ -234,7 +235,40 @@ async def main_mcp_tools() -> int:
 
     return 0
 
+async def test_mrag():
+    llm_provider = await get_llm_provider()
+    mrag = MRag(llm_provider=llm_provider)
+
+    text_content = "" \
+    "De rampenbestrijding en de voorbereiding daarop is een taak van de gemeente en het bestuur van de veiligheidsregio. Om zich voor te kunnen bereiden op de rampenbestrijding heeft het bestuur van de veiligheidsregio informatie nodig van de exploitanten. De informatie die nodig is (opgesomd in Bijlage K) is in principe opgenomen in het VR. Deze bijlage handelt over het selecteren van rampscenario’s die de veiligheidsregio inzicht moeten geven in de dynamiek van effecten ten gevolge van een LOC. Door deze informatie krijgt de veiligheidsregio een beeld van de mogelijke effecten buiten de Seveso-inrichting in geval van een ramp. Op basis van deze effecten bepaalt de veiligheidsregio, al dan niet in samenwerking met een bedrijfsbrandweer van de desbetreffende Seveso-inrichting, hoe moet worden opgetreden om de gevolgen van een ramp te minimaliseren." \
+    "Van belang is dat deze dynamiek (hiermee wordt bedoeld dat duidelijk is hoe het scenario zich ontwikkelt in de tijd) van de scenario’s is uitgewerkt. Een rampscenario kan instantaan optreden of zich langzaam ontwikkelen in de tijd. Indien het scenario zich langzaam ontwikkelt, kunnen nog maatregelen door de veiligheidsregio worden genomen, bijvoorbeeld het evacueren van personen in het effectgebied. De maatregelen van de veiligheidsregio kunnen dus worden afgestemd op het verloop van het rampscenario. Vandaar dat er informatie moet zijn over de ontwikkeling van een rampscenario. Daarom is in de in deze bijlage beschreven effectenboom aandacht gegeven aan het begrip ontwikkelingstijd."
+
+    await mrag.generate_key_concepts(text_content)
+
+    text_content = """De veiligheidsregio bereidt zich voor op rampen op basis van artikel 17, eerste lid, van de Wet veiligheidsregio’s. Daarin staat vermeld:
+
+Het bestuur van de veiligheidsregio stelt een rampbestrijdingsplan vast voor:
+
+    locaties waarop een of meer bij algemene maatregel van bestuur aangewezen milieubelastende activiteiten worden verricht;
+    inrichtingen en rampen die behoren tot een bij de maatregel, bedoeld onder a, aangewezen categorie;
+    luchthavens die bij de maatregel, bedoeld onder a, zijn aangewezen.
+
+In artikel 46, derde lid van de Wvr is het volgende bepaald:
+
+Het bestuur van de veiligheidsregio draagt er zorg voor dat de bij de rampenbestrijding en de crisisbeheersing in de regio betrokken personen informatie wordt verschaft over de rampen en de crises die de regio kunnen treffen, de risico’s die hun inzet kan hebben voor hun gezondheid en de voorzorgsmaatregelen die in verband daarmee zijn of zullen worden getroffen.
+
+in artikel 17, eerste lid, van de Wvr wordt verwezen naar een algemene maatregel van bestuur. Deze AMvB is het Besluit veiligheidsregio’s. In artikel 6.1.1, eerste lid, van het Bvr staat:
+
+“Het bestuur van de veiligheidsregio stelt een rampbestrijdingsplan vast voor locaties waarop hogedrempelinrichtingen worden geëxploiteerd.”
+
+De veiligheidsregio moet dus voor hogedrempeliginrichtingen overgaan tot het opstellen van een rampbestrijdingsplan. De informatie die het bestuur nodig heeft moet door degene die de hogedrempelinrichting exploiteert, worden aangeleverd op basis van artikel 48 van de Wet veiligheidsregio’s en de (deels) daarop gebaseerde paragraaf 4.2 van het Bal. Op grond van die informatie kan het bestuur van de veiligheidsregio alsnog besluiten dat voor de desbetreffende Seveso-inrichting geen rampbestrijdingsplan hoeft te worden vastgesteld.
+
+Daarnaast bevat artikel 4.13, tweede lid, onder b, van het Bal bepalingen ten aanzien van het aanleveren van en informatie voor de externe hulpdiensten ten behoeve van het opstellen van rampbestrijdingsplannen."""
+
+    await mrag.generate_key_concepts(text_content)
+
 if __name__ == "__main__":
     #rc = asyncio.run(main_local_tools())
-    rc = asyncio.run(main_mcp_tools())
+    #rc = asyncio.run(main_mcp_tools())
+    rc = asyncio.run(test_mrag())
     sys.exit(rc)
