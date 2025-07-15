@@ -1,0 +1,7 @@
+{
+    "task.verboseLogging": false,
+    "problems.showCurrentInStatus": false,
+    "notebook.consolidatedRunButton": true,
+    "problems.autoReveal": true,
+    "problems.visibility": true
+}

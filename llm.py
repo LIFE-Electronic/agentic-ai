@@ -15,6 +15,7 @@ import json
 class OpenAIConfig():
     api_key: str
     model: str = "gpt-4o"
+    embedding_model: str = "text-embedding-3-small"
     http_client: AsyncClient = DefaultAioHttpClient()
 
 @dataclass
@@ -46,6 +47,17 @@ class ChatResponse:
 class ModelResponse:
     name: str
 
+@dataclass
+class Embedding:
+    embeddings: list[float]
+    dims: int
+    tokens_used: int = 0
+
+class EmbeddingProvider(ABC):
+    @abstractmethod
+    async def create_embedding(self, text_content: str) -> Embedding:
+        raise NotImplementedError()
+
 class LLMProvider(ABC):
     @abstractmethod
     async def query(
@@ -63,12 +75,27 @@ class LLMProvider(ABC):
     ) -> list[ModelResponse]:
         raise NotImplementedError()
 
-class OpenAIProvider(LLMProvider):
+class OpenAIProvider(LLMProvider, EmbeddingProvider):
     config: OpenAIConfig
 
     def __init__(self, config: OpenAIConfig):
         super().__init__()
         self.config = config
+
+    async def create_embedding(self, text_content: str) -> Embedding:
+        async with AsyncOpenAI(
+            api_key=self.config.api_key,
+            http_client=DefaultAioHttpClient(),
+        ) as client:
+            embedding_response = await client.embeddings.create(
+                input=text_content,
+                model=self.config.embedding_model,
+            )
+            embedding = embedding_response.data[0].embedding
+            tokens = 0
+            if embedding_response.usage:
+                tokens += embedding_response.usage.total_tokens
+            return Embedding(embeddings=embedding, tokens_used=tokens, dims=len(embedding))
 
     async def get_available_models(self):
         async with AsyncOpenAI(
@@ -100,7 +127,7 @@ class OpenAIProvider(LLMProvider):
         self,
         client: AsyncOpenAI,
         messages: list[LLMMessage],
-        tool_calls = list[ToolCall],
+        tool_calls: list[ToolCall],
     ) -> Tuple[ChatCompletion, list[LLMMessage], LLMMessage]:
         prompt = f"""To execute this task, you will execute the following tool call: 
         {json.dumps([asdict(t) for t in tool_calls])}.
@@ -150,9 +177,10 @@ class OpenAIProvider(LLMProvider):
                 messages=self._create_openai_messages(messages=messages),
                 model=self.config.model,
                 tools=[self._create_openai_tools(tool.description) for tool in tools],
-                response_format=type_to_response_format_param(response_format) if response_format else NotGiven
+                response_format=type_to_response_format_param(response_format) if response_format else NotGiven # type: ignore[arg-type]
             )
             
+            tokens = 0
             if chat_completion.usage:
                 tokens = chat_completion.usage.total_tokens
             choice = chat_completion.choices[0]

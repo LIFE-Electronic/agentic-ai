@@ -7,7 +7,9 @@ from llm import OpenAIProvider, OpenAIConfig, ToolDefinition, LLMProvider
 from agent import Agent, AgentDescription
 from termcolor import cprint
 from mcpcli import McpClient, get_server_parameters
-from mrag import MRag
+from amem import AMem
+from chromadb import EphemeralClient
+import json
 
 dotenv.load_dotenv()
 
@@ -35,16 +37,16 @@ async def eval_agent(agent: Agent, user_messages: list[str], print_history: bool
     print(f"tokens used: {agent.get_tokens_used()}")
 
 
-async def retrieve_email(tag: Literal['unread', 'none'] | None, sender: str | None): 
+async def retrieve_email(tag: Literal['unread', 'none'] | None, sender: str | None) -> str: 
     print(f'CALL retrieve_email(tag={tag}, sender={sender})')
     if sender == 'mpfundstein@protonmail.com':
-        return [{
+        return json.dumps([{
             "from": "mpfundstein@protonmail.com",
             "title": "WHERE IS MY CASH!",
             "content": "WHERE IS MY CASH YOU IDEOT!",
             "tags": ["important"]
-        }]
-    return [
+        }])
+    return json.dumps([
         {
             "from": "loverboy@gmail.com",
             "title": "Meeting tonight?",
@@ -57,7 +59,7 @@ async def retrieve_email(tag: Literal['unread', 'none'] | None, sender: str | No
             "content": "Hey! We need to talk. It's serious! CALL ME!",
             "tags": ["unread"]
         }
-    ]
+    ])
 
 async def test_tool_use(llm_provider: LLMProvider):
     
@@ -172,25 +174,37 @@ async def test_memory(llm_provider: LLMProvider):
     
     await eval_agent(agent, prompts, print_history=True)
 
-async def get_llm_provider() -> LLMProvider:
-    model = 'gpt-4o'
-    config = OpenAIConfig(api_key=os.environ.get("OPENAI_API_KEY", ""), model=model)
+async def get_openai_provider() -> OpenAIProvider:
+    chat_model = 'gpt-4o'
+    emb_model = 'text-embedding-3-small'
+    config = OpenAIConfig(
+        api_key=os.environ.get("OPENAI_API_KEY", ""),
+        model=chat_model,
+        embedding_model=emb_model,
+    )
     llm_provider = OpenAIProvider(config)
     available_models = await llm_provider.get_available_models()
 
-    found = False
+    chat_model_found = False
+    emb_model_found = False
     for m in available_models:
-        if m.name == model:
-            found = True
+        if m.name == chat_model:
+            chat_model_found = True
+        if m.name == emb_model:
+            emb_model_found = True
+        if chat_model_found and emb_model_found:
             break
-    if not found:
-        raise RuntimeError(f"Model {model} not available")
+    
+    if not chat_model_found:
+        raise RuntimeError(f"Chat model {chat_model} not available")
+    if not emb_model_found:
+        raise RuntimeError(f"Embedding model {emb_model} not available")
 
     return llm_provider
 
 async def main_local_tools() -> int:
 
-    llm_provider = await get_llm_provider()
+    llm_provider = await get_openai_provider()
     
     await test_tool_use(llm_provider=llm_provider)
     await test_memory(llm_provider=llm_provider)
@@ -200,7 +214,7 @@ async def main_local_tools() -> int:
 
 async def main_mcp_tools() -> int:
 
-    llm_provider = await get_llm_provider()
+    llm_provider = await get_openai_provider()
 
     params = get_server_parameters()
 
@@ -236,14 +250,31 @@ async def main_mcp_tools() -> int:
     return 0
 
 async def test_mrag():
-    llm_provider = await get_llm_provider()
-    mrag = MRag(llm_provider=llm_provider)
+    llm_provider = await get_openai_provider()
+    amem = AMem(llm_provider=llm_provider,
+                chroma_client=EphemeralClient(),
+                embedding_provider=llm_provider)
+    amem.setup_database()
 
-    text_content = "" \
-    "De rampenbestrijding en de voorbereiding daarop is een taak van de gemeente en het bestuur van de veiligheidsregio. Om zich voor te kunnen bereiden op de rampenbestrijding heeft het bestuur van de veiligheidsregio informatie nodig van de exploitanten. De informatie die nodig is (opgesomd in Bijlage K) is in principe opgenomen in het VR. Deze bijlage handelt over het selecteren van rampscenario’s die de veiligheidsregio inzicht moeten geven in de dynamiek van effecten ten gevolge van een LOC. Door deze informatie krijgt de veiligheidsregio een beeld van de mogelijke effecten buiten de Seveso-inrichting in geval van een ramp. Op basis van deze effecten bepaalt de veiligheidsregio, al dan niet in samenwerking met een bedrijfsbrandweer van de desbetreffende Seveso-inrichting, hoe moet worden opgetreden om de gevolgen van een ramp te minimaliseren." \
-    "Van belang is dat deze dynamiek (hiermee wordt bedoeld dat duidelijk is hoe het scenario zich ontwikkelt in de tijd) van de scenario’s is uitgewerkt. Een rampscenario kan instantaan optreden of zich langzaam ontwikkelen in de tijd. Indien het scenario zich langzaam ontwikkelt, kunnen nog maatregelen door de veiligheidsregio worden genomen, bijvoorbeeld het evacueren van personen in het effectgebied. De maatregelen van de veiligheidsregio kunnen dus worden afgestemd op het verloop van het rampscenario. Vandaar dat er informatie moet zijn over de ontwikkeling van een rampscenario. Daarom is in de in deze bijlage beschreven effectenboom aandacht gegeven aan het begrip ontwikkelingstijd."
+    cis = [
+        "In the game Alpha Centauri, the spaceship is travelling to Alpha Omega",
+        "De rampenbestrijding en de voorbereiding daarop is een taak van de gemeente en het bestuur van de veiligheidsregio.",
+        "Om zich voor te kunnen bereiden op de rampenbestrijding heeft het bestuur van de veiligheidsregio informatie nodig van de exploitanten.",
+        "De informatie die nodig is (opgesomd in Bijlage K) is in principe opgenomen in het VR. Deze bijlage handelt over het selecteren van rampscenario’s die de veiligheidsregio inzicht moeten geven in de dynamiek van effecten ten gevolge van een LOC. "
+    ]
 
-    await mrag.generate_key_concepts(text_content)
+    for ci in cis:
+        note = await amem.create_memory_note(ci)
+        amem.store_memory(note=note)
+
+
+    # Door deze informatie krijgt de veiligheidsregio een beeld van de mogelijke effecten buiten de Seveso-inrichting in geval van een ramp. Op basis van deze effecten bepaalt de veiligheidsregio, al dan niet in samenwerking met een bedrijfsbrandweer van de desbetreffende Seveso-inrichting, hoe moet worden opgetreden om de gevolgen van een ramp te minimaliseren." \
+    #"Van belang is dat deze dynamiek (hiermee wordt bedoeld dat duidelijk is hoe het scenario zich ontwikkelt in de tijd) van de scenario’s is uitgewerkt. Een rampscenario kan instantaan optreden of zich langzaam ontwikkelen in de tijd. Indien het scenario zich langzaam ontwikkelt, kunnen nog maatregelen door de veiligheidsregio worden genomen, bijvoorbeeld het evacueren van personen in het effectgebied. De maatregelen van de veiligheidsregio kunnen dus worden afgestemd op het verloop van het rampscenario. Vandaar dat er informatie moet zijn over de ontwikkeling van een rampscenario. Daarom is in de in deze bijlage beschreven effectenboom aandacht gegeven aan het begrip ontwikkelingstijd."
+
+
+
+    return 0
+
 
     text_content = """De veiligheidsregio bereidt zich voor op rampen op basis van artikel 17, eerste lid, van de Wet veiligheidsregio’s. Daarin staat vermeld:
 
@@ -265,7 +296,7 @@ De veiligheidsregio moet dus voor hogedrempeliginrichtingen overgaan tot het ops
 
 Daarnaast bevat artikel 4.13, tweede lid, onder b, van het Bal bepalingen ten aanzien van het aanleveren van en informatie voor de externe hulpdiensten ten behoeve van het opstellen van rampbestrijdingsplannen."""
 
-    await mrag.generate_key_concepts(text_content)
+    await amem.generate_key_concepts(text_content)
 
 if __name__ == "__main__":
     #rc = asyncio.run(main_local_tools())
